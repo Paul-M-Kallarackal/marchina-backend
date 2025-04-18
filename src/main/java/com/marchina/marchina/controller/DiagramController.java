@@ -32,4 +32,11 @@ public class DiagramController {
         DiagramResponse response = new DiagramResponse(mermaidCode, "ERD generated successfully");
         return ResponseEntity.ok(response);
     }
+
+    @GetMapping("/test")
+    public ResponseEntity<DiagramResponse> generateTest(@RequestBody DiagramRequest request) {
+        String code  = "Testing CI/CD";
+        DiagramResponse response = new DiagramResponse(code, "Test generated successfully");
+        return ResponseEntity.ok(response);
+    }
 }

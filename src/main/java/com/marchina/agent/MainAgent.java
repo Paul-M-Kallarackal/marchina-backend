@@ -78,7 +78,7 @@ public class MainAgent {
      */
     private AgentResponse delegateToAgent(String agentType, String action, String request) {
         int retryCount = 0;
-        AgentResponse result = null;
+        AgentResponse result;
         String currentRequest = request;
 
         while (retryCount < MAX_RETRIES) {

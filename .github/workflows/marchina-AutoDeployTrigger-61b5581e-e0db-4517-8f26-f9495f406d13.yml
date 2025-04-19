@@ -1,4 +1,4 @@
-name: Trigger auto deployment for marchina-container
+name: Trigger auto deployment for marchina
 
 # When this action will be executed
 on:
@@ -8,7 +8,7 @@ on:
       [ main ]
     paths:
     - '**'
-    - '.github/workflows/marchina-container-AutoDeployTrigger-9fa3f279-cb1c-4cd3-9859-9b6d72edef33.yml'
+    - '.github/workflows/marchina-AutoDeployTrigger-61b5581e-e0db-4517-8f26-f9495f406d13.yml'
 
   # Allow manual trigger 
   workflow_dispatch:      
@@ -27,9 +27,9 @@ jobs:
       - name: Azure Login
         uses: azure/login@v1
         with:
-          client-id: ${{ secrets.MARCHINACONTAINER_AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.MARCHINACONTAINER_AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.MARCHINACONTAINER_AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ secrets.MARCHINA_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.MARCHINA_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.MARCHINA_AZURE_SUBSCRIPTION_ID }}
 
       - name: Build and push container image to registry
         uses: azure/container-apps-deploy-action@v2
@@ -37,11 +37,11 @@ jobs:
           appSourcePath: ${{ github.workspace }}
           _dockerfilePathKey_: _dockerfilePath_
           registryUrl: marchinaregistry.azurecr.io
-          registryUsername: ${{ secrets.MARCHINACONTAINER_REGISTRY_USERNAME }}
-          registryPassword: ${{ secrets.MARCHINACONTAINER_REGISTRY_PASSWORD }}
-          containerAppName: marchina-container
-          resourceGroup: Java_1
-          imageToBuild: marchinaregistry.azurecr.io/marchina-container:${{ github.sha }}
+          registryUsername: ${{ secrets.MARCHINA_REGISTRY_USERNAME }}
+          registryPassword: ${{ secrets.MARCHINA_REGISTRY_PASSWORD }}
+          containerAppName: marchina
+          resourceGroup: marchina-rg
+          imageToBuild: marchinaregistry.azurecr.io/marchina:${{ github.sha }}
           _buildArgumentsKey_: |
             _buildArgumentsValues_
 

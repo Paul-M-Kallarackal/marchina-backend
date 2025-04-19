@@ -12,11 +12,5 @@ RUN mvn clean package -DskipTests
 FROM mcr.microsoft.com/openjdk/jdk:${JAVA_VERSION}-mariner
 WORKDIR /app
 COPY --from=builder /app/target/*.jar app.jar
-
-# Expose port 8080
 EXPOSE 8080
-
-# Set server port explicitly
-ENV SERVER_PORT=8080
-
-ENTRYPOINT ["java", "-jar", "-Dserver.port=8080", "app.jar"]
+ENTRYPOINT ["java", "-jar", "app.jar"]

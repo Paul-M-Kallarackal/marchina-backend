@@ -10,6 +10,8 @@ target/
 .factorypath
 .project
 .settings
+docker-compose.yml
+docker-compose.*.yml
 .springBeans
 .sts4-cache
 

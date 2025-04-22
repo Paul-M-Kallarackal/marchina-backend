@@ -5,6 +5,11 @@ import dev.langchain4j.model.chat.ChatLanguageModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.JdbcTemplate;
+
+import java.time.Duration;
+import java.util.List;
 
 /**
  * Main agent that intelligently coordinates between specialized agents.
@@ -18,18 +23,30 @@ public class MainAgent {
     private final ERDAgent erdAgent;
     private final SQLGeneratorAgent sqlGeneratorAgent;
     private final FlowchartAgent flowchartAgent;
+    private final ClassDiagramAgent classDiagramAgent;
+    private final SequenceDiagramAgent sequenceDiagramAgent;
     private final DiagramValidator diagramValidator;
+    private final JdbcTemplate jdbcTemplate;
+
+
 
     public MainAgent(ChatLanguageModel chatModel,
                     ERDAgent erdAgent,
                     SQLGeneratorAgent sqlGeneratorAgent,
                     FlowchartAgent flowchartAgent,
-                    DiagramValidator diagramValidator) {
+                    ClassDiagramAgent classDiagramAgent,
+                    SequenceDiagramAgent sequenceDiagramAgent,
+                    DiagramValidator diagramValidator,
+                    JdbcTemplate jdbcTemplate) {
         this.chatModel = chatModel;
         this.erdAgent = erdAgent;
         this.sqlGeneratorAgent = sqlGeneratorAgent;
         this.flowchartAgent = flowchartAgent;
+        this.classDiagramAgent = classDiagramAgent;
+        this.sequenceDiagramAgent = sequenceDiagramAgent;
         this.diagramValidator = diagramValidator;
+        this.jdbcTemplate = jdbcTemplate;
+        logger.info("MainAgent initialized");
     }
 
     /**
@@ -155,5 +172,45 @@ public class MainAgent {
             case "SQL" -> diagramValidator.validateMermaidSyntax(content);
             default -> "Unsupported agent type for validation";
         };
+    }
+
+    public void processRequest(Long projectId, String diagramType, String requirements) {
+        try {
+            logger.info("Processing {} request for project {}", diagramType, projectId);
+            
+            // Route to appropriate agent based on diagram type
+            switch (diagramType.toLowerCase()) {
+                case "erd":
+                case "entity relationship diagram":
+                    erdAgent.generateAndSaveERD(projectId, requirements);
+                    break;
+                    
+                case "flowchart":
+                case "flow chart":
+                    flowchartAgent.generateAndSaveFlowchart(projectId, requirements);
+                    break;
+                    
+                case "sequence diagram":
+                    sequenceDiagramAgent.generateAndSaveSequenceDiagram(projectId, requirements);
+                    break;
+                    
+                case "class diagram":
+                    classDiagramAgent.generateAndSaveClassDiagram(projectId, requirements);
+                    break;
+                    
+                default:
+                    throw new IllegalArgumentException("Unsupported diagram type: " + diagramType);
+            }
+            
+            logger.info("Successfully processed {} for project {}", diagramType, projectId);
+            
+        } catch (Exception e) {
+            logger.error("Error processing {} for project {}: {}", diagramType, projectId, e.getMessage(), e);
+            throw new RuntimeException("Failed to process diagram request", e);
+        }
+    }
+
+    private String generateDiagramName(String diagramType) {
+        return diagramType.replaceAll("\\s+", "_").toLowerCase();
     }
 } 

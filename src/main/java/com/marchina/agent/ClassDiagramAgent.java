@@ -15,8 +15,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 @Component
-public class FlowchartAgent {
-    private static final Logger logger = LoggerFactory.getLogger(FlowchartAgent.class);
+public class ClassDiagramAgent {
+    private static final Logger logger = LoggerFactory.getLogger(ClassDiagramAgent.class);
     private static final int MAX_RETRIES = 3;
 
     private final ChatLanguageModel chatModel;
@@ -33,22 +33,22 @@ public class FlowchartAgent {
         return diagram;
     };
 
-    public FlowchartAgent(ChatLanguageModel chatModel, DiagramValidator diagramValidator, JdbcTemplate jdbcTemplate) {
+    public ClassDiagramAgent(ChatLanguageModel chatModel, DiagramValidator diagramValidator, JdbcTemplate jdbcTemplate) {
         this.chatModel = chatModel;
         this.diagramValidator = diagramValidator;
         this.jdbcTemplate = jdbcTemplate;
     }
 
     /**
-     * Generates and saves a flowchart for a project.
+     * Generates and saves a class diagram for a project.
      */
-    public void generateAndSaveFlowchart(Long projectId, String requirements) {
+    public void generateAndSaveClassDiagram(Long projectId, String requirements) {
         try {
-            logger.info("Generating flowchart for project {}", projectId);
+            logger.info("Generating class diagram for project {}", projectId);
             
-            AgentResponse response = generateFlowchart(requirements);
+            AgentResponse response = generateClassDiagram(requirements);
             if (!response.isSuccess()) {
-                throw new RuntimeException("Failed to generate flowchart: " + response.getMessage());
+                throw new RuntimeException("Failed to generate class diagram: " + response.getMessage());
             }
 
             String sql = """
@@ -65,61 +65,61 @@ public class FlowchartAgent {
                 sql,
                 diagramRowMapper,
                 projectId,
-                "flowchart",
-                "Flowchart",
+                "class",
+                "Class Diagram",
                 response.getMessage()
             );
 
             if (diagrams.isEmpty()) {
-                throw new RuntimeException("Failed to save flowchart diagram");
+                throw new RuntimeException("Failed to save class diagram");
             }
 
-            logger.info("Saved flowchart for project {}", projectId);
+            logger.info("Saved class diagram for project {}", projectId);
             
         } catch (Exception e) {
-            logger.error("Error processing flowchart for project {}: {}", projectId, e.getMessage(), e);
-            throw new RuntimeException("Failed to process flowchart request", e);
+            logger.error("Error processing class diagram for project {}: {}", projectId, e.getMessage(), e);
+            throw new RuntimeException("Failed to process class diagram request", e);
         }
     }
 
-    public AgentResponse generateFlowchart(String description) {
+    public AgentResponse generateClassDiagram(String description) {
         try {
-            logger.info("Generating flowchart for description: {}", description);
+            logger.info("Generating class diagram for description: {}", description);
             
             int retryCount = 0;
             String currentDescription = description;
             
             while (retryCount < MAX_RETRIES) {
-                logger.info("Attempt {} of {} to generate flowchart", retryCount + 1, MAX_RETRIES);
+                logger.info("Attempt {} of {} to generate class diagram", retryCount + 1, MAX_RETRIES);
                 
-                // Generate flowchart using LLM
-                String flowchartPrompt = String.format("""
-                    Generate a Mermaid flowchart based on this description:
+                String classDiagramPrompt = String.format("""
+                    Generate a Mermaid class diagram based on this description:
                     %s
                     
                     Follow these rules:
-                    1. Use proper Mermaid flowchart syntax
-                    2. Include all necessary steps and decision points
-                    3. Use clear directional flow
-                    4. Add appropriate labels and descriptions
-                    5. Keep it clear and readable
+                    1. Use proper Mermaid class diagram syntax
+                    2. Include all necessary classes and interfaces
+                    3. Show inheritance, composition, and aggregation relationships
+                    4. Include important methods and attributes
+                    5. Use appropriate access modifiers (public, private, protected)
+                    6. Add meaningful relationship descriptions
                     
                     Provide only the Mermaid code (in string not markdown), nothing else. Do not include quotes in the code.
                     """, currentDescription);
                 
-                String mermaidCode = chatModel.generate(flowchartPrompt);
+                String mermaidCode = chatModel.generate(classDiagramPrompt);
                 
-                // Validate the generated flowchart
-                String validationResult = diagramValidator.validateFlowChart(mermaidCode);
+                // Validate the generated class diagram
+                String validationResult = diagramValidator.validateMermaidSyntax(mermaidCode);
                 if (validationResult.contains("valid")) {
-                    return new AgentResponse(true, mermaidCode, "Flowchart generated successfully");
+                    return new AgentResponse(true, mermaidCode, "Class diagram generated successfully");
                 }
                 
                 // If validation fails, improve the description and retry
                 String improvementPrompt = String.format("""
-                    Improve this flowchart description based on validation feedback:
+                    Improve this class diagram description based on validation feedback:
                     Original Description: %s
-                    Generated Flowchart: %s
+                    Generated Diagram: %s
                     Validation Feedback: %s
                     
                     Provide an improved version of the description.
@@ -130,26 +130,27 @@ public class FlowchartAgent {
             }
             
             return new AgentResponse(false, 
-                "Failed to generate valid flowchart after " + MAX_RETRIES + " attempts");
+                "Failed to generate valid class diagram after " + MAX_RETRIES + " attempts");
                 
         } catch (Exception e) {
-            logger.error("Error generating flowchart: {}", e.getMessage(), e);
-            return new AgentResponse(false, "Error generating flowchart: " + e.getMessage());
+            logger.error("Error generating class diagram: {}", e.getMessage(), e);
+            return new AgentResponse(false, "Error generating class diagram: " + e.getMessage());
         }
     }
 
-    public String explainFlowChart(String mermaidCode) {
+    public String explainClassDiagram(String mermaidCode) {
         String prompt = String.format("""
-            Explain the following Mermaid flowchart code in simple terms:
+            Explain the following Mermaid class diagram code in simple terms:
             %s
             
             Requirements:
-            1. Start with an overview of the process
-            2. Explain each decision point and its outcomes
-            3. Describe the flow from start to end
-            4. Highlight any important conditions or branches
+            1. Explain the overall structure and relationships
+            2. Describe each class's purpose and responsibilities
+            3. Highlight important methods and attributes
+            4. Explain inheritance hierarchies and relationships
+            5. Note any design patterns or architectural decisions
             
-            Provide a clear and concise explanation.
+            Provide a clear and comprehensive explanation.
             """, mermaidCode);
         
         return chatModel.generate(prompt);

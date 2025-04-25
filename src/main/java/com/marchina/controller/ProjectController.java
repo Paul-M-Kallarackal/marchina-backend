@@ -152,7 +152,7 @@ public class ProjectController {
         }
     }
 
-    private void processRequestsFromRequirements(Long projectId, RequirementSet requirements) {
+    public void processRequestsFromRequirements(Long projectId, RequirementSet requirements) {
         try {
             // Generate ERD
             if (requirements.getErdRequirements() != null && !requirements.getErdRequirements().isEmpty()) {

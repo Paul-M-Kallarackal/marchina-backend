@@ -1,5 +1,7 @@
 package com.marchina.controller;
 
+import com.marchina.agent.RequirementExtractorAgent;
+import com.marchina.model.RequirementSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,10 +16,16 @@ import java.util.Map;
 public class MCPController {
     private static final Logger logger = LoggerFactory.getLogger(MCPController.class);
     private final JdbcTemplate jdbcTemplate;
+    private final RequirementExtractorAgent requirementExtractorAgent;
+    private final ProjectController projectController;
 
     @Autowired
-    public MCPController(JdbcTemplate jdbcTemplate) {
+    public MCPController(JdbcTemplate jdbcTemplate, 
+                        RequirementExtractorAgent requirementExtractorAgent,
+                        ProjectController projectController) {
         this.jdbcTemplate = jdbcTemplate;
+        this.requirementExtractorAgent = requirementExtractorAgent;
+        this.projectController = projectController;
     }
 
     @PostMapping("/guest/project")
@@ -55,10 +63,23 @@ public class MCPController {
                 projectDescription
             );
 
-            // Return both user and project info
+            // Extract requirements synchronously
+            logger.info("Starting requirement extraction for project: {}", newProject.get("id"));
+            RequirementSet requirements = requirementExtractorAgent.extractRequirements(
+                    projectName,
+                    projectDescription
+            );
+            logger.info("Requirements: {}", requirements);
+
+            // Generate diagrams synchronously using ProjectController's method
+            projectController.processRequestsFromRequirements((Long) newProject.get("id"), requirements);
+            logger.info("Completed requirement extraction and diagram generation for project: {}", newProject.get("id"));
+
+            // Return user, project, and requirements info
             return ResponseEntity.ok(Map.of(
                 "user", guestUser,
-                "project", newProject
+                "project", newProject,
+                "requirements", requirements
             ));
 
         } catch (Exception e) {

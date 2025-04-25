@@ -1,82 +1,39 @@
 package com.marchina.agent;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.microsoft.cognitiveservices.speech.*;
+import com.microsoft.cognitiveservices.speech.audio.*;
 import io.github.cdimascio.dotenv.Dotenv;
-import org.java_websocket.client.WebSocketClient;
-import org.java_websocket.handshake.ServerHandshake;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import javax.sound.sampled.*;
-import java.io.ByteArrayOutputStream;
-import java.net.URI;
-import java.nio.ByteBuffer;
-import java.util.Base64;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
+import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
 
 @Service
 public class STTAgent {
     private static final Logger logger = LoggerFactory.getLogger(STTAgent.class);
-    private static final ObjectMapper objectMapper = new ObjectMapper();
     
-    private final String apiKey;
-    private final String endpoint;
-    private final String deploymentId;
-    private final String apiVersion;
-    
-    private static final AudioFormat AUDIO_FORMAT = new AudioFormat(
-            16000, // Sample rate
-            16,    // Sample size in bits
-            1,     // Channels
-            true,  // Signed
-            false  // Little endian
-    );
+    private final String speechKey;
+    private final String speechRegion;
     
     public STTAgent(Dotenv dotenv) {
-        logger.info("Initializing STT Agent with Azure OpenAI");
+        logger.info("Initializing STT Agent with Azure Speech Services");
         
-        this.apiKey = dotenv.get("AZURE_OPENAI_API_KEY");
-        this.endpoint = dotenv.get("AZURE_OPENAI_ENDPOINT");
-        this.deploymentId = dotenv.get("AZURE_OPENAI_REALTIME_DEPLOYMENT_ID");
-        this.apiVersion = dotenv.get("AZURE_OPENAI_API_VERSION");
+        this.speechKey = dotenv.get("AZURE_SPEECH_KEY");
+        this.speechRegion = dotenv.get("AZURE_SPEECH_REGION");
         
-        logger.info("Azure OpenAI Endpoint: {}", endpoint);
-        logger.info("Azure OpenAI DeploymentId: {}", deploymentId);
-        logger.info("Azure OpenAI API Version: {}", apiVersion);
+        logger.info("Azure Speech Region: {}", speechRegion);
         
-        if (apiKey == null || endpoint == null || deploymentId == null || apiVersion == null) {
-            String message = "Missing required Azure OpenAI configuration. Please check your .env file.";
+        if (speechKey == null || speechRegion == null) {
+            String message = "Missing required Azure Speech configuration. Please check your .env file.";
             logger.error(message);
             throw new IllegalStateException(message);
-        }
-    }
-    
-    /**
-     * Transcribes speech from audio input using Azure OpenAI's realtime API
-     * 
-     * @return The transcribed text
-     */
-    public String transcribeAudio() {
-        try {
-            // Create WebSocket connection to Azure OpenAI realtime endpoint
-            String wsUrl = constructWebSocketUrl();
-            STTWebSocketClient client = new STTWebSocketClient(new URI(wsUrl), apiKey);
-            
-            // Connect to the WebSocket
-            if (!client.connectBlocking(30, TimeUnit.SECONDS)) {
-                throw new RuntimeException("Failed to connect to Azure OpenAI realtime endpoint");
-            }
-            
-            // Start audio capture and streaming
-            return captureAndStreamAudio(client);
-            
-        } catch (Exception e) {
-            logger.error("Error during speech transcription", e);
-            throw new RuntimeException("Speech transcription failed: " + e.getMessage(), e);
         }
     }
     
@@ -88,17 +45,65 @@ public class STTAgent {
      */
     public String transcribeAudioData(byte[] audioData) {
         try {
-            // Create WebSocket connection to Azure OpenAI realtime endpoint
-            String wsUrl = constructWebSocketUrl();
-            STTWebSocketClient client = new STTWebSocketClient(new URI(wsUrl), apiKey);
+            // Create a temporary WAV file from the audio data
+            File tempFile = createTempWavFile(audioData);
             
-            // Connect to the WebSocket
-            if (!client.connectBlocking(30, TimeUnit.SECONDS)) {
-                throw new RuntimeException("Failed to connect to Azure OpenAI realtime endpoint");
-            }
+            // Configure speech recognition
+            SpeechConfig speechConfig = SpeechConfig.fromSubscription(speechKey, speechRegion);
+            speechConfig.setSpeechRecognitionLanguage("en-US");
             
-            // Stream the audio data
-            return streamAudioData(client, audioData);
+            // Create audio configuration from the WAV file
+            AudioConfig audioInput = AudioConfig.fromWavFileInput(tempFile.getAbsolutePath());
+            
+            // Create a speech recognizer
+            SpeechRecognizer recognizer = new SpeechRecognizer(speechConfig, audioInput);
+            
+            // Start recognition and get the result
+            StringBuilder resultBuilder = new StringBuilder();
+            Semaphore stopRecognitionSemaphore = new Semaphore(0);
+            
+            // Subscribe to events
+            recognizer.recognized.addEventListener((s, e) -> {
+                if (e.getResult().getReason() == ResultReason.RecognizedSpeech) {
+                    String text = e.getResult().getText();
+                    logger.info("RECOGNIZED: {}", text);
+                    resultBuilder.append(text).append(" ");
+                } else if (e.getResult().getReason() == ResultReason.NoMatch) {
+                    logger.warn("NOMATCH: Speech could not be recognized.");
+                }
+            });
+            
+            recognizer.canceled.addEventListener((s, e) -> {
+                logger.info("CANCELED: Reason={}", e.getReason());
+                if (e.getReason() == CancellationReason.Error) {
+                    logger.error("CANCELED: ErrorCode={}", e.getErrorCode());
+                    logger.error("CANCELED: ErrorDetails={}", e.getErrorDetails());
+                }
+                stopRecognitionSemaphore.release();
+            });
+            
+            recognizer.sessionStopped.addEventListener((s, e) -> {
+                logger.info("Session stopped event.");
+                stopRecognitionSemaphore.release();
+            });
+            
+            // Start continuous recognition
+            recognizer.startContinuousRecognitionAsync().get();
+            
+            // Wait for recognition to complete
+            stopRecognitionSemaphore.acquire();
+            
+            // Stop recognition
+            recognizer.stopContinuousRecognitionAsync().get();
+            
+            // Clean up resources
+            recognizer.close();
+            audioInput.close();
+            speechConfig.close();
+            tempFile.delete();
+            
+            String result = resultBuilder.toString().trim();
+            return result.isEmpty() ? "No transcription available" : result;
             
         } catch (Exception e) {
             logger.error("Error during speech transcription", e);
@@ -106,235 +111,80 @@ public class STTAgent {
         }
     }
     
-    private String constructWebSocketUrl() {
-        return String.format("wss://%s/openai/realtime?api-version=%s&deployment=%s", 
-                endpoint.replace("https://", "").replace("http://", ""),
-                apiVersion, 
-                deploymentId);
-    }
-    
-    private String captureAndStreamAudio(STTWebSocketClient client) throws Exception {
-        // Configure audio capture
-        DataLine.Info info = new DataLine.Info(TargetDataLine.class, AUDIO_FORMAT);
-        if (!AudioSystem.isLineSupported(info)) {
-            throw new RuntimeException("Audio line not supported");
-        }
-        
-        TargetDataLine line = (TargetDataLine) AudioSystem.getLine(info);
-        line.open(AUDIO_FORMAT);
-        line.start();
-        
-        logger.info("Started audio capture. Speak now...");
-        
-        // Send start message to initialize the session
-        sendStartMessage(client);
-        
-        // Buffer for reading audio data
-        byte[] buffer = new byte[4096];
-        ByteArrayOutputStream audioData = new ByteArrayOutputStream();
-        
-        // Set up a future to get the transcription result
-        CompletableFuture<String> transcriptionFuture = client.getTranscriptionFuture();
-        
+    /**
+     * Transcribes speech from microphone input
+     * 
+     * @return The transcribed text
+     */
+    public String transcribeAudio() {
         try {
-            // Read and stream audio for up to 30 seconds or until silence is detected
-            long startTime = System.currentTimeMillis();
-            int silenceCounter = 0;
+            // Configure speech recognition
+            SpeechConfig speechConfig = SpeechConfig.fromSubscription(speechKey, speechRegion);
+            speechConfig.setSpeechRecognitionLanguage("en-US");
             
-            while (System.currentTimeMillis() - startTime < 30000 && !transcriptionFuture.isDone()) {
-                int bytesRead = line.read(buffer, 0, buffer.length);
+            // Create audio configuration from default microphone
+            AudioConfig audioInput = AudioConfig.fromDefaultMicrophoneInput();
+            
+            // Create a speech recognizer
+            SpeechRecognizer recognizer = new SpeechRecognizer(speechConfig, audioInput);
+            
+            logger.info("Speak into your microphone...");
+            
+            // Start recognition and get the result
+            Future<SpeechRecognitionResult> task = recognizer.recognizeOnceAsync();
+            SpeechRecognitionResult result = task.get();
+            
+            // Process the result
+            if (result.getReason() == ResultReason.RecognizedSpeech) {
+                String text = result.getText();
+                logger.info("RECOGNIZED: {}", text);
                 
-                if (bytesRead > 0) {
-                    // Check if this is silence (simplified check)
-                    boolean isSilence = isSilence(buffer, bytesRead);
-                    
-                    if (isSilence) {
-                        silenceCounter++;
-                        // If 1.5 seconds of silence (assuming ~15 frames per second)
-                        if (silenceCounter > 15) {
-                            break;
-                        }
-                    } else {
-                        silenceCounter = 0;
-                    }
-                    
-                    // Store the audio data
-                    audioData.write(buffer, 0, bytesRead);
-                    
-                    // Send audio chunk to Azure
-                    sendAudioChunk(client, buffer, bytesRead);
+                // Clean up resources
+                recognizer.close();
+                audioInput.close();
+                speechConfig.close();
+                
+                return text;
+            } else if (result.getReason() == ResultReason.NoMatch) {
+                logger.warn("NOMATCH: Speech could not be recognized.");
+                return "No speech could be recognized";
+            } else if (result.getReason() == ResultReason.Canceled) {
+                CancellationDetails cancellation = CancellationDetails.fromResult(result);
+                logger.error("CANCELED: Reason={}", cancellation.getReason());
+                
+                if (cancellation.getReason() == CancellationReason.Error) {
+                    logger.error("CANCELED: ErrorCode={}", cancellation.getErrorCode());
+                    logger.error("CANCELED: ErrorDetails={}", cancellation.getErrorDetails());
                 }
+                
+                return "Speech recognition was canceled: " + cancellation.getReason();
             }
             
-            // Send end message
-            sendEndMessage(client);
+            // Clean up resources
+            recognizer.close();
+            audioInput.close();
+            speechConfig.close();
             
-            // Wait for final transcription
-            String result = transcriptionFuture.get(5, TimeUnit.SECONDS);
-            return result != null ? result : "No transcription available";
+            return "Unexpected recognition result";
             
-        } finally {
-            line.stop();
-            line.close();
-            client.closeBlocking();
+        } catch (Exception e) {
+            logger.error("Error during speech transcription", e);
+            throw new RuntimeException("Speech transcription failed: " + e.getMessage(), e);
         }
-    }
-    
-    private String streamAudioData(STTWebSocketClient client, byte[] audioData) throws Exception {
-        // Send start message to initialize the session
-        sendStartMessage(client);
-        
-        // Stream audio data in chunks
-        int chunkSize = 4096;
-        for (int i = 0; i < audioData.length; i += chunkSize) {
-            int length = Math.min(chunkSize, audioData.length - i);
-            byte[] chunk = new byte[length];
-            System.arraycopy(audioData, i, chunk, 0, length);
-            sendAudioChunk(client, chunk, length);
-            
-            // Small delay to avoid overwhelming the API
-            Thread.sleep(10);
-        }
-        
-        // Send end message
-        sendEndMessage(client);
-        
-        // Wait for final transcription
-        CompletableFuture<String> transcriptionFuture = client.getTranscriptionFuture();
-        String result = transcriptionFuture.get(5, TimeUnit.SECONDS);
-        client.closeBlocking();
-        
-        return result != null ? result : "No transcription available";
-    }
-    
-    // Updated sendStartMessage for GPT-4o
-    private void sendStartMessage(STTWebSocketClient client) throws Exception {
-        Map<String, Object> message = new HashMap<>();
-        message.put("type", "start");
-
-        Map<String, Object> inputFormat = new HashMap<>();
-        inputFormat.put("encoding", "pcm");
-        inputFormat.put("sample_rate", 16000);
-        inputFormat.put("channels", 1);
-
-        Map<String, Object> responseFormat = new HashMap<>();
-        responseFormat.put("type", "text");
-
-        message.put("input_format", inputFormat);
-        message.put("response_format", responseFormat);
-
-        client.send(objectMapper.writeValueAsString(message));
-    }
-
-    // Updated sendAudioChunk to send raw binary data instead of base64
-    private void sendAudioChunk(STTWebSocketClient client, byte[] audioChunk, int length) throws Exception {
-        byte[] chunk = new byte[length];
-        System.arraycopy(audioChunk, 0, chunk, 0, length);
-        client.send(chunk);  // Send as raw bytes
-    }
-
-    
-    private void sendEndMessage(STTWebSocketClient client) throws Exception {
-        Map<String, Object> message = new HashMap<>();
-        message.put("type", "end");
-        
-        client.send(objectMapper.writeValueAsString(message));
-    }
-    
-    private boolean isSilence(byte[] buffer, int bytesRead) {
-        // Simple silence detection - check if audio amplitude is below threshold
-        int threshold = 500; // Adjust based on your needs
-        
-        for (int i = 0; i < bytesRead; i += 2) {
-            if (i + 1 < bytesRead) {
-                int sample = ((buffer[i] & 0xFF) | (buffer[i + 1] << 8));
-                if (Math.abs(sample) > threshold) {
-                    return false;
-                }
-            }
-        }
-        return true;
     }
     
     /**
-     * WebSocket client for handling Azure OpenAI realtime API communication
+     * Creates a temporary WAV file from audio data
+     * 
+     * @param audioData The audio data as byte array
+     * @return The temporary file
+     * @throws IOException If an I/O error occurs
      */
-    private static class STTWebSocketClient extends WebSocketClient {
-        private final Logger logger = LoggerFactory.getLogger(STTWebSocketClient.class);
-        private final CompletableFuture<String> transcriptionFuture = new CompletableFuture<>();
-        private final StringBuilder transcriptionBuilder = new StringBuilder();
-        private final String apiKey;
-        
-        public STTWebSocketClient(URI serverUri, String apiKey) {
-            super(serverUri);
-            this.apiKey = apiKey;
-            
-            // Add Azure API key as header
-            this.addHeader("api-key", apiKey);
+    private File createTempWavFile(byte[] audioData) throws IOException {
+        File tempFile = File.createTempFile("audio_", ".wav");
+        try (FileOutputStream fos = new FileOutputStream(tempFile)) {
+            fos.write(audioData);
         }
-        
-        @Override
-        public void onOpen(ServerHandshake handshakedata) {
-            logger.info("Connected to Azure OpenAI realtime endpoint");
-        }
-        
-        @Override
-        public void onMessage(String message) {
-            try {
-                Map<String, Object> response = objectMapper.readValue(message, Map.class);
-                String type = (String) response.get("type");
-                
-                if ("partial".equals(type)) {
-                    // Handle partial transcription
-                    String text = (String) response.get("text");
-                    logger.debug("Partial transcription: {}", text);
-                } else if ("final".equals(type)) {
-                    // Handle final transcription
-                    String text = (String) response.get("text");
-                    logger.info("Final transcription: {}", text);
-                    transcriptionBuilder.append(text).append(" ");
-                } else if ("error".equals(type)) {
-                    // Handle error
-                    String errorMessage = (String) response.get("message");
-                    logger.error("Error from Azure OpenAI: {}", errorMessage);
-                    transcriptionFuture.completeExceptionally(new RuntimeException(errorMessage));
-                } else if ("end".equals(type)) {
-                    // End of session
-                    logger.info("Transcription session ended");
-                    transcriptionFuture.complete(transcriptionBuilder.toString().trim());
-                }
-            } catch (Exception e) {
-                logger.error("Error processing message from Azure OpenAI", e);
-                transcriptionFuture.completeExceptionally(e);
-            }
-        }
-        
-        @Override
-        public void onClose(int code, String reason, boolean remote) {
-            logger.info("Connection closed: {} - {}", code, reason);
-            if (!transcriptionFuture.isDone()) {
-                if (transcriptionBuilder.length() > 0) {
-                    transcriptionFuture.complete(transcriptionBuilder.toString().trim());
-                } else {
-                    transcriptionFuture.completeExceptionally(
-                            new RuntimeException("Connection closed without transcription: " + reason));
-                }
-            }
-        }
-        
-        @Override
-        public void onError(Exception ex) {
-            logger.error("WebSocket error", ex);
-            transcriptionFuture.completeExceptionally(ex);
-        }
-        
-        @Override
-        public void onMessage(ByteBuffer bytes) {
-            logger.debug("Received binary message");
-        }
-        
-        public CompletableFuture<String> getTranscriptionFuture() {
-            return transcriptionFuture;
-        }
+        return tempFile;
     }
 }

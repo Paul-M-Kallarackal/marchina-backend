@@ -12,10 +12,5 @@ public class WebConfig {
     @Bean
     public RestTemplate restTemplate() {
         return new RestTemplate();
-public class WebConfig {
-    
-    @Bean
-    public RestTemplate restTemplate() {
-        return new RestTemplate();
-    }
 } 
+}

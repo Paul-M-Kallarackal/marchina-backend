@@ -10,6 +10,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+// Add these imports at the top
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import com.marchina.config.JwtConfig.JwtService;
 import com.marchina.controller.ProjectController;
@@ -31,20 +34,32 @@ public class RequirementExtractorVoice {
     
     private String projectName;
     private List<String> conversationHistory = new ArrayList<>();
-    private boolean requirementsGathered = false;
-    private String projectDescription;
-    private Long projectId;
+    private Map<String, ConversationState> userSessions = new ConcurrentHashMap<>();
+    // private boolean requirementsGathered = false;
+    // private String projectDescription;
+    // private Long projectId;
 
-    private String currentToken;
+    // private String currentToken;
 
     // public ChatResponse processMessage(String userMessage, String authHeader) {
         
     //     // Rest of the existing processMessage logic
     // }
 
-    private String getCurrentUserToken() {
-        return this.currentToken;
+    // private String getCurrentUserToken() {
+    //     return this.currentToken;
+    // }
+
+    // Create a class to hold conversation state
+    public static class ConversationState {
+        List<String> conversationHistory = new ArrayList<>();
+        boolean requirementsGathered = false;
+        String projectName;
+        String projectDescription;
+        Long projectId;
+        String currentToken;
     }
+
 
     public RequirementExtractorVoice(
             ChatLanguageModel chatModel, 
@@ -64,14 +79,22 @@ public class RequirementExtractorVoice {
 
     public ChatResponse processMessage(String userMessage,String authHeader) {
         try {
-            this.currentToken = authHeader;
+            String token = authHeader.replace("Bearer ", "");
+            Map<String, Object> claims = jwtService.extractAllClaims(token);
+            String userId = claims.get("userId").toString();
+
+            // Get or create conversation state for this user
+            ConversationState state = userSessions.computeIfAbsent(userId, k -> new ConversationState());
+
+
+            state.currentToken = authHeader;
             // Add user message to conversation history
-            conversationHistory.add("User: " + userMessage);
+            state.conversationHistory.add("User: " + userMessage);
             
             String prompt;
             String aiResponse;
             
-            if (projectName == null) {
+            if (state.projectName == null) {
                 // First analyze the user message to extract project name
                 prompt = String.format("""
                     Analyze this message and extract a suitable project name:
@@ -86,7 +109,7 @@ public class RequirementExtractorVoice {
                     Return only the project name, nothing else.
                     """, userMessage);
                     
-                projectName = chatModel.generate(prompt);
+                state.projectName = chatModel.generate(prompt);
                 
                 // Then generate engaging response
                 prompt = String.format("""
@@ -99,17 +122,17 @@ public class RequirementExtractorVoice {
                     2. Asks about the core functionality
                     3. Encourages detailed explanation
                     4. Maintains conversational tone
-                    5. Keep it short and engaging, only ask one question at a time.
-                    6. Don't use markdown or code blocks
+                    5. Is short and engaging, and only asks one question at a time.
+                    6. Doesn't use any markdown formatting
                     
                     Provide only the response text.
-                    """, projectName, userMessage);
+                    """, state.projectName, userMessage);
                     
                 aiResponse = chatModel.generate(prompt);
                 
-            } else if (!requirementsGathered) {
+            } else if (!state.requirementsGathered) {
                 // Check if we have enough information to generate requirements
-                String fullConversation = String.join("\n", conversationHistory);
+                String fullConversation = String.join("\n", state.conversationHistory);
                 
                 prompt = String.format("""
                     Based on this conversation about project "%s", determine if we have enough information to generate requirements:
@@ -121,7 +144,7 @@ public class RequirementExtractorVoice {
                     2. If user instructs to generate diagrams in the last message.
                     
                     Return only "SUFFICIENT" or "INSUFFICIENT" followed by a brief reason.
-                    """, projectName, fullConversation);
+                    """, state.projectName, fullConversation);
                 
                 String assessmentResult = chatModel.generate(prompt);
                 
@@ -135,22 +158,21 @@ public class RequirementExtractorVoice {
                         Generate a comprehensive project description that:
                         1. Summarizes the project purpose
                         2. Lists all key features and requirements
-                        3. Includes any technical constraints mentioned
+                        3. Includes any technical constraints mentioned by the user.
                         4. Is structured and detailed enough for technical diagram generation
-                        5. Don't use markdown or code blocks.
-                        6. Keep it concise.
+                        5. Doesn't use any markdown formatting.
                         
                         Provide only the description text.
-                        """, projectName, fullConversation);
+                        """, state.projectName, fullConversation);
                     
-                    projectDescription = chatModel.generate(prompt);
-                    requirementsGathered = true;
+                    state.projectDescription = chatModel.generate(prompt);
+                    state.requirementsGathered = true;
                     
                     // Create the project in the database
-                    createProject();
+                    createProject(state);
                     
                     // Generate diagrams using MainAgent
-                    generateDiagrams();
+                    generateDiagrams(state);
                     
                     prompt = String.format("""
                         Based on the gathered information:
@@ -161,11 +183,11 @@ public class RequirementExtractorVoice {
                         1. Summarizes the understood requirements
                         2. Confirms proceeding to diagram generation
                         3. Sets expectations for next steps
-                        4. Don't use markdown or code blocks.
+                        4. Doesn't use any markdown formatting.
                         5. Keep it short, concise, and precise.
                         
                         Provide only the response text.
-                        """, projectName, projectDescription);
+                        """, state.projectName, state.projectDescription);
                     
                     aiResponse = chatModel.generate(prompt);
                 } else {
@@ -180,11 +202,11 @@ public class RequirementExtractorVoice {
                         2. Asks specific questions to gather missing details
                         3. Guides the user toward providing complete requirements
                         4. Maintains conversational tone
-                        5. Keep it short and engaging
-                        6. Don't use markdown or code blocks
+                        5. Is short and engaging
+                        6. Doesn't use any markdown formatting.
                         
                         Provide only the response text.
-                        """, projectName, fullConversation);
+                        """, state.projectName, fullConversation);
                     
                     aiResponse = chatModel.generate(prompt);
                 }
@@ -193,29 +215,29 @@ public class RequirementExtractorVoice {
             }
             
             // Add AI response to conversation history
-            conversationHistory.add("AI: " + aiResponse);
+            state.conversationHistory.add("AI: " + aiResponse);
             
             String audioData = ttsAgent.generateSpeech(aiResponse);
-            return new ChatResponse(aiResponse, audioData, requirementsGathered, projectId);
+            return new ChatResponse(aiResponse, audioData, state.requirementsGathered, state.projectId);
         } catch (Exception e) {
             logger.error("Error processing message: {}", e.getMessage());
             throw new RuntimeException("Failed to process message", e);
         }
     }
     
-    private void createProject() {
+    private void createProject(ConversationState state) {
         try {
             Map<String, String> payload = new HashMap<>();
-            payload.put("name", projectName);
-            payload.put("description", projectDescription);
+            payload.put("name", state.projectName);
+            payload.put("description", state.projectDescription);
 
-            ResponseEntity<?> response = projectController.createProject(payload, currentToken);
+            ResponseEntity<?> response = projectController.createProject(payload, state.currentToken);
             
             if (response.getStatusCode() == HttpStatus.OK) {
                 Map<String, Object> responseBody = (Map<String, Object>) response.getBody();
                 Project project = (Project) responseBody.get("project");
-                projectId = project.getId();
-                logger.info("Voice flow created project with ID: {}", projectId);
+                state.projectId = project.getId();
+                logger.info("Voice flow created project with ID: {}", state.projectId);
             } else {
                 throw new RuntimeException("Failed to create project through ProjectController");
             }
@@ -227,8 +249,8 @@ public class RequirementExtractorVoice {
     }
 
 
-    private void generateDiagrams() {
-        if (projectId == null) {
+    private void generateDiagrams(ConversationState state) {
+        if (state.projectId == null) {
             throw new IllegalStateException("Project ID is null, cannot generate diagrams");
         }
 
@@ -246,7 +268,7 @@ public class RequirementExtractorVoice {
                 - Class Diagram (for object relationships)
                 
                 Return only one diagram type that is needed, lowercase.
-                """, projectDescription);
+                """, state.projectDescription);
 
             logger.debug("Analyzing project for diagram types needed");
             String diagramTypes = chatModel.generate(analysisPrompt);
@@ -255,33 +277,39 @@ public class RequirementExtractorVoice {
             for (String diagramType : diagramTypes.split("\n")) {
                 diagramType = diagramType.trim().toLowerCase();
                 if (!diagramType.isEmpty()) {
-                    logger.debug("Generating {} for project {}", diagramType, projectId);
-                    mainAgent.processRequest(projectId, diagramType, projectDescription);
+                    logger.debug("Generating {} for project {}", diagramType, state.projectId);
+                    mainAgent.processRequest(state.projectId, diagramType, state.projectDescription);
                 }
             }
 
-            logger.info("Generated recommended diagrams for project {}", projectId);
+            logger.info("Generated recommended diagrams for project {}", state.projectId);
 
         } catch (Exception e) {
-            logger.error("Error generating diagrams for project {}: {}", projectId, e.getMessage(), e);
+            logger.error("Error generating diagrams for project {}: {}", state.projectId, e.getMessage(), e);
             throw new RuntimeException("Failed to generate diagrams", e);
         }
     }
 
     
-    public boolean isRequirementsGathered() {
-        return requirementsGathered;
+    public boolean isRequirementsGathered(ConversationState state) {
+        return state.requirementsGathered;
     }
 
-    public String getProjectName() {
-        return projectName;
+    public String getProjectName(ConversationState state) {
+        return state.projectName;
     }
 
-    public String getProjectDescription() {
-        return projectDescription;
+    public String getProjectDescription(ConversationState state) {
+        return state.projectDescription;
     }
     
-    public Long getProjectId() {
-        return projectId;
+    public Long getProjectId(ConversationState state) {
+        return state.projectId;
     }
+
+    public ConversationState getUserState(String userId) {
+    return userSessions.computeIfAbsent(userId, k -> new ConversationState());
+}
+
+
 }

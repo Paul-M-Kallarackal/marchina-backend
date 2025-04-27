@@ -105,18 +105,23 @@
 			<version>1.5.3</version>
 		</dependency>
 
+		<!-- JSON -->
+		<dependency>
+			<groupId>org.json</groupId>
+			<artifactId>json</artifactId>
+			<version>20231013</version>
+		</dependency>
+
+		<dependency>
+			<groupId>com.fasterxml.jackson.datatype</groupId>
+			<artifactId>jackson-datatype-jsr310</artifactId>
+		</dependency>
+
 		<dependency>
 			<groupId>com.microsoft.cognitiveservices.speech</groupId>
 			<artifactId>client-sdk</artifactId>
 			<version>1.32.1</version>
 		</dependency>
-		<!-- For JSON parsing -->
-		<dependency>
-			<groupId>org.json</groupId>
-			<artifactId>json</artifactId>
-			<version>20230618</version>
-		</dependency>
-		
 		<dependency>
 			<groupId>org.springframework</groupId>
 			<artifactId>spring-websocket</artifactId>

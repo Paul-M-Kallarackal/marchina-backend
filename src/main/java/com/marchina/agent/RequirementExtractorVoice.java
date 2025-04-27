@@ -90,6 +90,8 @@ public class RequirementExtractorVoice {
                     2. Use standard naming conventions
                     3. Avoid special characters
                     4. Maximum 50 characters
+                    5. If the user message contains a Project name, extract it.
+                    6. If the user message doesn't contain a project name, suggest a suitable one.
                     
                     Return only the project name, nothing else.
                     """, userMessage);
@@ -146,6 +148,7 @@ public class RequirementExtractorVoice {
                         3. Includes any technical constraints mentioned by the user.
                         4. Is structured and detailed enough for technical diagram generation
                         5. Doesn't use any markdown formatting.
+                        6. Contains three lines maximum.
                         
                         Provide only the description text.
                         """, state.projectName, fullConversation);

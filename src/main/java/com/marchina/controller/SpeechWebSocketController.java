@@ -98,7 +98,12 @@ public class SpeechWebSocketController extends BinaryWebSocketHandler {
                         session.sendMessage(new TextMessage(objectMapper.writeValueAsString(response)));
                     } else if (e.getResult().getReason() == ResultReason.NoMatch) {
                     // Get detailed NoMatch information
+                    Map<String, Object> response = new HashMap<>();
+                    // response.put("type", "error");
+                    // response.put("message", "Speech recognition error: " + e.getResult().getReason());
                     NoMatchReason noMatchReason = NoMatchDetails.fromResult(e.getResult()).getReason();
+                    // session.sendMessage(new TextMessage(objectMapper.writeValueAsString(response)));
+                    session.close(CloseStatus.SERVER_ERROR);
                     
                     logger.warn("NOMATCH: Speech could not be recognized. Reason: {}", noMatchReason);
                     

@@ -28,12 +28,12 @@ public class RequirementExtractorVoice {
     private final JwtService jwtService;
     private final ProjectController projectController;
 
-    
+
     private String projectName;
     private List<String> conversationHistory = new ArrayList<>();
     private boolean requirementsGathered = false;
     private String projectDescription;
-    private Long projectId;
+    private Project project;
 
     private String currentToken;
 
@@ -149,8 +149,8 @@ public class RequirementExtractorVoice {
                     // Create the project in the database
                     createProject();
                     
-                    // Generate diagrams using MainAgent
-                    generateDiagrams();
+                    // Generate the preferred diagram (Flowchart)
+                    generateOptimalDiagram();
                     
                     prompt = String.format("""
                         Based on the gathered information:
@@ -196,7 +196,7 @@ public class RequirementExtractorVoice {
             conversationHistory.add("AI: " + aiResponse);
             
             String audioData = ttsAgent.generateSpeech(aiResponse);
-            return new ChatResponse(aiResponse, audioData, requirementsGathered, projectId);
+            return new ChatResponse(aiResponse, audioData, requirementsGathered, getProjectId());
         } catch (Exception e) {
             logger.error("Error processing message: {}", e.getMessage());
             throw new RuntimeException("Failed to process message", e);
@@ -213,62 +213,69 @@ public class RequirementExtractorVoice {
             
             if (response.getStatusCode() == HttpStatus.OK) {
                 Map<String, Object> responseBody = (Map<String, Object>) response.getBody();
-                Project project = (Project) responseBody.get("project");
-                projectId = project.getId();
-                logger.info("Voice flow created project with ID: {}", projectId);
+                this.project = (Project) responseBody.get("project");
+                if (this.project != null) {
+                    logger.info("Voice flow created project with ID: {}", this.project.getId());
+                } else {
+                    throw new RuntimeException("Project object was null in the response from ProjectController");
+                }
             } else {
-                throw new RuntimeException("Failed to create project through ProjectController");
+                String errorBody = response.hasBody() ? response.getBody().toString() : "No error body";
+                logger.error("Failed to create project through ProjectController. Status: {}, Body: {}", response.getStatusCode(), errorBody);
+                throw new RuntimeException("Failed to create project through ProjectController. Status: " + response.getStatusCode());
             }
 
         } catch (Exception e) {
             logger.error("Error creating project: {}", e.getMessage(), e);
-            throw new RuntimeException("Failed to create project", e);
+            throw new RuntimeException("Error during project creation: " + e.getMessage(), e);
         }
     }
 
+    private void generateOptimalDiagram() {
+        if (this.project == null) {
+            logger.error("Cannot generate diagram because project object is null.");
+            return;
+        }
 
-    private void generateDiagrams() {
-        if (projectId == null) {
-            throw new IllegalStateException("Project ID is null, cannot generate diagrams");
+        if (this.projectDescription == null || this.projectDescription.trim().isEmpty()) {
+            logger.warn("Project description is empty for project {}, skipping diagram generation.", this.project.getId());
+            return;
         }
 
         try {
-            // Ask the model what diagrams would be most useful
+            // Determine the optimal diagram type using LLM based on projectDescription
             String analysisPrompt = String.format("""
-                Analyze this project description and determine which diagrams would be most useful:
+                Analyze this project description and determine the single most appropriate diagram type to visualize it.
+                Available types: ERD, Flowchart, Sequence Diagram, Class Diagram.
+                Consider the focus of the description (data structure, process flow, interactions, object structure).
                 
-                Project Description: %s
+                Description:
+                %s
                 
-                Available diagram types:
-                - ERD (for data relationships)
-                - Flowchart (for process flows)
-                - Sequence Diagram (for interaction sequences)
-                - Class Diagram (for object relationships)
-                
-                Return only one diagram type that is needed, lowercase.
-                """, projectDescription);
+                Respond ONLY with the name of the single most appropriate diagram type (e.g., Flowchart, ERD, Sequence Diagram, Class Diagram).
+                """, this.projectDescription);
 
-            logger.debug("Analyzing project for diagram types needed");
-            String diagramTypes = chatModel.generate(analysisPrompt);
-            
-            // Process each recommended diagram type
-            for (String diagramType : diagramTypes.split("\n")) {
-                diagramType = diagramType.trim().toLowerCase();
-                if (!diagramType.isEmpty()) {
-                    logger.debug("Generating {} for project {}", diagramType, projectId);
-                    mainAgent.processRequest(projectId, diagramType, projectDescription);
-                }
+            String optimalDiagramType = chatModel.generate(analysisPrompt).trim();
+            // Basic validation/fallback
+            List<String> validTypes = List.of("ERD", "Flowchart", "Sequence Diagram", "Class Diagram");
+            if (!validTypes.contains(optimalDiagramType)) {
+                logger.warn("LLM returned invalid diagram type '{}' based on voice description. Defaulting to Flowchart.", optimalDiagramType);
+                optimalDiagramType = "Flowchart"; // Fallback to Flowchart
             }
 
-            logger.info("Generated recommended diagrams for project {}", projectId);
+            logger.info("Determined optimal diagram type for project {} from voice context: {}", this.project.getId(), optimalDiagramType);
+            
+            // Call MainAgent to generate the determined optimal diagram type using projectDescription
+            mainAgent.processRequest(this.project, optimalDiagramType, this.projectDescription);
+            logger.info("Finished attempt to generate optimal diagram ({}) for project {}", optimalDiagramType, this.project.getId());
 
         } catch (Exception e) {
-            logger.error("Error generating diagrams for project {}: {}", projectId, e.getMessage(), e);
-            throw new RuntimeException("Failed to generate diagrams", e);
+            logger.error("Error determining or generating optimal diagram for project {} from voice context: {}", 
+                         (this.project != null ? this.project.getId() : "null"), e.getMessage(), e);
+            // Logged the error, not throwing
         }
     }
 
-    
     public boolean isRequirementsGathered() {
         return requirementsGathered;
     }
@@ -282,6 +289,6 @@ public class RequirementExtractorVoice {
     }
     
     public Long getProjectId() {
-        return projectId;
+        return (this.project != null) ? this.project.getId() : null;
     }
 }

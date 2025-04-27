@@ -12,6 +12,9 @@ import org.springframework.jdbc.core.RowMapper;
 import java.util.List;
 import java.util.Map;
 import com.marchina.agent.MainAgent;
+import com.marchina.model.Project;
+import java.util.Optional;
+import org.springframework.http.HttpStatus;
 
 @RestController
 @RequestMapping("/api/projects/{projectId}/diagrams")
@@ -38,6 +41,15 @@ public class DiagramController {
         diagram.setType(rs.getString("type"));
         diagram.setContent(rs.getString("content"));
         return diagram;
+    };
+
+    private final RowMapper<Project> projectRowMapper = (rs, rowNum) -> {
+        Project project = new Project();
+        project.setId(rs.getLong("id"));
+        project.setUserId(rs.getLong("user_id"));
+        project.setName(rs.getString("name"));
+        project.setDescription(rs.getString("description"));
+        return project;
     };
 
     private boolean validateProjectAccess(Long projectId, Long userId) {
@@ -193,55 +205,59 @@ public class DiagramController {
             Long userId = Long.parseLong(claims.get("userId").toString());
 
             if (!validateProjectAccess(projectId, userId)) {
-                return ResponseEntity.notFound().build();
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Project not found or access denied"));
             }
+
+            String projectSql = "SELECT id, user_id, name, description FROM \"Projects\" WHERE id = ? AND user_id = ?";
+            List<Project> projects = jdbcTemplate.query(projectSql, projectRowMapper, projectId, userId);
+
+            if (projects.isEmpty()) {
+                logger.warn("Project with ID {} not found or user {} does not have access.", projectId, userId);
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Project not found or access denied"));
+            }
+            Project project = projects.get(0);
 
             String generalType = payload.get("generalType");
             String requirement = payload.get("requirement");
 
             if (generalType == null || requirement == null) {
-                return ResponseEntity.badRequest()
-                        .body(Map.of("error", "Both generalType and requirement are required"));
+                return ResponseEntity.badRequest().body(Map.of("error", "Both generalType and requirement are required"));
             }
 
-            // Map general type to specific diagram type
             String diagramType;
             switch (generalType) {
                 case "System Architecture" -> diagramType = "Class Diagram";
                 case "Workflow" -> diagramType = "Flowchart";
                 case "Database Schema" -> diagramType = "ERD";
                 default -> {
-                    return ResponseEntity.badRequest()
-                            .body(Map.of("error", "Invalid generalType. Must be one of: System Architecture, Workflow, or Database Schema"));
+                    return ResponseEntity.badRequest().body(Map.of("error", "Invalid generalType specified"));
                 }
             }
 
-            logger.info("Creating {} diagram for project {}", diagramType, projectId);
-            
-            // Process the request using MainAgent
-            mainAgent.processRequest(projectId, diagramType, requirement);
+            logger.info("Requesting creation of {} diagram for project {}", diagramType, projectId);
 
-            // Fetch the newly created diagram
-            String selectSql = """
-                SELECT id, project_id, name, type, content
-                FROM "Diagrams"
-                WHERE project_id = ?
-                ORDER BY id DESC
-                LIMIT 1
-            """;
+            Optional<Diagram> createdDiagramOpt = mainAgent.processRequest(project, diagramType, requirement);
 
-            List<Diagram> diagrams = jdbcTemplate.query(selectSql, diagramRowMapper, projectId);
-            
-            if (diagrams.isEmpty()) {
-                return ResponseEntity.badRequest()
-                        .body(Map.of("error", "Failed to create diagram"));
+            if (createdDiagramOpt.isPresent()) {
+                logger.info("Successfully created diagram ID {} for project {}", createdDiagramOpt.get().getId(), projectId);
+                return ResponseEntity.status(HttpStatus.CREATED).body(createdDiagramOpt.get());
+            } else {
+                logger.error("Diagram creation process completed for project {}, but no diagram object was returned.", projectId);
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                                    .body(Map.of("error", "Failed to create diagram: process completed without result"));
             }
 
-            return ResponseEntity.ok(diagrams.get(0));
-        } catch (Exception e) {
+        } catch (IllegalArgumentException e) {
+            logger.warn("Bad request during diagram creation for project {}: {}", projectId, e.getMessage());
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (RuntimeException e) {
             logger.error("Error creating diagram for project {}: {}", projectId, e.getMessage(), e);
-            return ResponseEntity.badRequest()
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Failed to create diagram: " + e.getMessage()));
+        } catch (Exception e) {
+            logger.error("Unexpected error creating diagram for project {}: {}", projectId, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "An unexpected error occurred during diagram creation"));
         }
     }
 } 

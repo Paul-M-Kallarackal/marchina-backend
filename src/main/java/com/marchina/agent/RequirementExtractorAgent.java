@@ -1,6 +1,5 @@
 package com.marchina.agent;
 
-import com.marchina.model.RequirementSet;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,55 +17,34 @@ public class RequirementExtractorAgent {
         logger.info("RequirementExtractorAgent initialized");
     }
 
-    public RequirementSet extractRequirements(String name, String description) {
+    public String extractDetailedRequirements(String name, String description) {
         try {
-            logger.info("Extracting requirements for project: {}", name);
-            
+            logger.info("Extracting detailed requirements for project: {}", name);
+
             String prompt = String.format("""
-                Given the following project details:
+                Analyze the following project details:
                 Name: %s
                 Description: %s
+
+                Generate a single, consolidated, and highly detailed set of functional and technical requirements suitable for creating a technical diagram (like a flowchart).
+                Include:
+                - Core purpose and goals.
+                - Key actors/users and their interactions.
+                - Step-by-step process flows, including decisions, inputs, outputs, and loops.
+                - Data entities involved and their key attributes/relationships (if applicable).
+                - System components or classes involved (if applicable).
+                - Any specific constraints or non-functional requirements mentioned.
                 
-                Please analyze the project and provide requirements for the following diagram types:
-                1. Entity Relationship Diagram (ERD)
-                2. Flowchart
-                3. Sequence Diagram
-                4. Class Diagram
-                
-                Format your response in clear sections for each diagram type.
+                Present the requirements clearly and logically. Do not section by diagram type. Aim for maximum detail to enable accurate diagram generation.
                 """, name, description);
 
-            String response = chatModel.generate(prompt);
-            logger.info("Generated requirements from Azure OpenAI");
-            
-            RequirementSet requirements = new RequirementSet();
-            requirements.setErdRequirements(extractSection(response, "Entity Relationship Diagram"));
-            requirements.setFlowchartRequirements(extractSection(response, "Flowchart"));
-            requirements.setSequenceDiagramRequirements(extractSection(response, "Sequence Diagram"));
-            requirements.setClassDiagramRequirements(extractSection(response, "Class Diagram"));
-            
-            return requirements;
-        } catch (Exception e) {
-            logger.error("Error extracting requirements: {}", e.getMessage(), e);
-            throw new RuntimeException("Failed to extract requirements", e);
-        }
-    }
+            String detailedRequirements = chatModel.generate(prompt);
+            logger.info("Generated detailed requirements string from LLM.");
 
-    private String extractSection(String content, String sectionName) {
-        try {
-            String[] sections = content.split("(?=" + sectionName + ")");
-            for (String section : sections) {
-                if (section.trim().startsWith(sectionName)) {
-                    // Get the content until the next section or end of text
-                    String[] parts = section.split("(?=\\d\\.)");
-                    if (parts.length > 0) {
-                        return parts[0].replace(sectionName, "").trim();
-                    }
-                }
-            }
-            return "";
+            return detailedRequirements;
+
         } catch (Exception e) {
-            logger.error("Error extracting section {}: {}", sectionName, e.getMessage());
+            logger.error("Error extracting detailed requirements: {}", e.getMessage(), e);
             return "";
         }
     }

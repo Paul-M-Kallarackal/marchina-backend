@@ -1,10 +1,10 @@
 package com.marchina.controller;
 
 import com.marchina.model.Project;
-import com.marchina.model.RequirementSet;
 import com.marchina.agent.MainAgent;
 import com.marchina.agent.RequirementExtractorAgent;
 import com.marchina.config.JwtConfig.JwtService;
+import dev.langchain4j.model.chat.ChatLanguageModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,14 +12,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
-import org.springframework.jdbc.support.GeneratedKeyHolder;
-import org.springframework.jdbc.support.KeyHolder;
-import java.sql.PreparedStatement;
-import java.sql.Statement;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
-import org.springframework.http.HttpStatus;
 
 @RestController
 @RequestMapping("/api/projects")
@@ -30,17 +24,20 @@ public class ProjectController {
     private final RequirementExtractorAgent requirementExtractorAgent;
     private final JwtService jwtService;
     private final JdbcTemplate jdbcTemplate;
+    private final ChatLanguageModel chatModel;
 
     @Autowired
     public ProjectController(
             MainAgent mainAgent,
             RequirementExtractorAgent requirementExtractorAgent,
             JwtService jwtService,
-            JdbcTemplate jdbcTemplate) {
+            JdbcTemplate jdbcTemplate,
+            ChatLanguageModel chatModel) {
         this.mainAgent = mainAgent;
         this.requirementExtractorAgent = requirementExtractorAgent;
         this.jwtService = jwtService;
         this.jdbcTemplate = jdbcTemplate;
+        this.chatModel = chatModel;
         logger.info("ProjectController initialized");
     }
 
@@ -101,20 +98,21 @@ public class ProjectController {
 
             Project createdProject = projects.get(0);
 
-            // Extract requirements synchronously
-            logger.info("Starting requirement extraction for project: {}", createdProject.getId());
-            RequirementSet requirements = requirementExtractorAgent.extractRequirements(
+            // Extract detailed requirements as a single string
+            logger.info("Starting detailed requirement extraction for project: {}", createdProject.getId());
+            String detailedRequirements = requirementExtractorAgent.extractDetailedRequirements(
                     createdProject.getName(),
                     createdProject.getDescription()
             );
-            logger.info("Requirements: {}", requirements);
-            // Generate diagrams synchronously
-            processRequestsFromRequirements(createdProject.getId(), requirements);
-            logger.info("Completed requirement extraction and diagram generation for project: {}", createdProject.getId());
+            logger.info("Detailed requirements extracted.");
+
+            // Determine and generate the single most optimal diagram
+            generateOptimalDiagram(createdProject, detailedRequirements);
+            logger.info("Completed diagram generation for project: {}", createdProject.getId());
 
             return ResponseEntity.ok(Map.of(
                 "project", createdProject,
-                "requirements", requirements
+                "detailedRequirements", detailedRequirements
             ));
         } catch (Exception e) {
             logger.error("Error creating project: {}", e.getMessage(), e);
@@ -152,30 +150,41 @@ public class ProjectController {
         }
     }
 
-    public void processRequestsFromRequirements(Long projectId, RequirementSet requirements) {
+    public void generateOptimalDiagram(Project project, String detailedRequirements) {
         try {
-            // Generate ERD
-            if (requirements.getErdRequirements() != null && !requirements.getErdRequirements().isEmpty()) {
-                mainAgent.processRequest(projectId, "ERD", requirements.getErdRequirements());
+            if (detailedRequirements == null || detailedRequirements.trim().isEmpty()) {
+                 logger.warn("Skipping diagram generation for project {} due to empty detailed requirements.", project.getId());
+                return;
             }
 
-            // Generate Flowchart
-            if (requirements.getFlowchartRequirements() != null && !requirements.getFlowchartRequirements().isEmpty()) {
-                mainAgent.processRequest(projectId, "Flowchart", requirements.getFlowchartRequirements());
+            // Determine the optimal diagram type using LLM
+            String analysisPrompt = String.format("""
+                Analyze these detailed project requirements and determine the single most appropriate diagram type to visualize them.
+                Available types: ERD, Flowchart, Sequence Diagram, Class Diagram.
+                Consider the focus of the requirements (data structure, process flow, interactions, object structure).
+                
+                Requirements:
+                %s
+                
+                Respond ONLY with the name of the single most appropriate diagram type (e.g., Flowchart, ERD, Sequence Diagram, Class Diagram).
+                """, detailedRequirements);
+
+            String optimalDiagramType = chatModel.generate(analysisPrompt).trim();
+            // Basic validation/fallback - might need more robust handling
+            List<String> validTypes = List.of("ERD", "Flowchart", "Sequence Diagram", "Class Diagram");
+            if (!validTypes.contains(optimalDiagramType)) {
+                 logger.warn("LLM returned invalid diagram type '{}'. Defaulting to Flowchart.", optimalDiagramType);
+                 optimalDiagramType = "Flowchart"; // Fallback to Flowchart
             }
 
-            // Generate Sequence Diagram
-            if (requirements.getSequenceDiagramRequirements() != null && !requirements.getSequenceDiagramRequirements().isEmpty()) {
-                mainAgent.processRequest(projectId, "Sequence Diagram", requirements.getSequenceDiagramRequirements());
-            }
+            logger.info("Determined optimal diagram type for project {}: {}", project.getId(), optimalDiagramType);
+            
+            // Call MainAgent to generate the determined optimal diagram type
+            mainAgent.processRequest(project, optimalDiagramType, detailedRequirements); 
 
-            // Generate Class Diagram
-            if (requirements.getClassDiagramRequirements() != null && !requirements.getClassDiagramRequirements().isEmpty()) {
-                mainAgent.processRequest(projectId, "Class Diagram", requirements.getClassDiagramRequirements());
-            }
         } catch (Exception e) {
-            logger.error("Error generating diagrams for project {}: {}", projectId, e.getMessage(), e);
-            throw new RuntimeException("Failed to generate diagrams", e);
+            logger.error("Error determining or generating optimal diagram for project {}: {}", project.getId(), e.getMessage(), e);
+            // Consider re-throwing depending on desired behavior
         }
     }
 } 

@@ -11,6 +11,9 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
+// Need Project model for instantiation
+import com.marchina.model.Project;
+
 @RestController
 @RequestMapping("/api/mcp")
 public class MCPController {
@@ -56,30 +59,39 @@ public class MCPController {
                 SELECT id, user_id, name, description FROM new_project
             """;
 
-            Map<String, Object> newProject = jdbcTemplate.queryForMap(
+            Map<String, Object> newProjectMap = jdbcTemplate.queryForMap(
                 createProjectSql,
                 guestUser.get("id"),
                 projectName,
                 projectDescription
             );
 
-            // Extract requirements synchronously
-            logger.info("Starting requirement extraction for project: {}", newProject.get("id"));
-            RequirementSet requirements = requirementExtractorAgent.extractRequirements(
+            // Extract detailed requirements using the RENAMED method
+            logger.info("Starting detailed requirement extraction for project: {}", newProjectMap.get("id"));
+            // Use extractDetailedRequirements which returns String
+            String detailedRequirements = requirementExtractorAgent.extractDetailedRequirements(
                     projectName,
                     projectDescription
             );
-            logger.info("Requirements: {}", requirements);
+            logger.info("Detailed requirements extracted for guest project.");
 
-            // Generate diagrams synchronously using ProjectController's method
-            projectController.processRequestsFromRequirements((Long) newProject.get("id"), requirements);
-            logger.info("Completed requirement extraction and diagram generation for project: {}", newProject.get("id"));
+            // Construct Project object from the map
+            Project project = new Project();
+            project.setId((Long) newProjectMap.get("id"));
+            project.setUserId((Long) newProjectMap.get("user_id"));
+            project.setName((String) newProjectMap.get("name"));
+            project.setDescription((String) newProjectMap.get("description"));
+            
+            // Call the appropriate method in ProjectController (which handles diagram generation)
+            // We pass the project object and the extracted detailed requirements string
+            projectController.generateOptimalDiagram(project, detailedRequirements); 
+            logger.info("Completed diagram generation request for guest project: {}", project.getId());
 
-            // Return user, project, and requirements info
+            // Return user, project (as map), and the detailed requirements string
             return ResponseEntity.ok(Map.of(
                 "user", guestUser,
-                "project", newProject,
-                "requirements", requirements
+                "project", newProjectMap, 
+                "detailedRequirements", detailedRequirements 
             ));
 
         } catch (Exception e) {

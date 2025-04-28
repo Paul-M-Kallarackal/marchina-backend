@@ -13,7 +13,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/chat")
-@CrossOrigin(origins = {"http://localhost:3000", "https://marchina.calmmoss-a81a16c4.eastus.azurecontainerapps.io"})
 public class ChatController {
     private static final Logger logger = LoggerFactory.getLogger(ChatController.class);
     

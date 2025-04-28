@@ -10,6 +10,8 @@ import org.springframework.web.bind.annotation.*;
 import com.marchina.config.JwtConfig.JwtService;
 
 import java.util.Map;
+import java.util.HashMap;
+
 
 @RestController
 @RequestMapping("/api/chat")
@@ -20,6 +22,7 @@ public class ChatController {
     private final JwtService jwtService;  
     private final AgentController agentController;
     private final ProjectController projectController;
+
 
     public ChatController(
             RequirementExtractorVoice requirementExtractor,
@@ -64,6 +67,23 @@ public class ChatController {
             logger.error("Error in chat endpoint: {}", e.getMessage());
             return ResponseEntity.internalServerError().build();
         }
+    }
+
+    @DeleteMapping
+    public ResponseEntity<Map<String, String>> clearConversation(@RequestHeader("Authorization") String authHeader) {
+        String token = authHeader.replace("Bearer ", "");
+        Map<String, Object> claims = jwtService.extractAllClaims(token);
+        String userId = claims.get("userId").toString();
+        
+        RequirementExtractorVoice.ConversationState state = requirementExtractor.getUserState(userId);
+        if (state != null) {
+            state.clearConversationHistory();
+            logger.info("Cleared conversation history for user: {}", userId);
+        }
+        
+        Map<String, String> response = new HashMap<>();
+        response.put("message", "Conversation history cleared successfully");
+        return ResponseEntity.ok(response);
     }
 
 }

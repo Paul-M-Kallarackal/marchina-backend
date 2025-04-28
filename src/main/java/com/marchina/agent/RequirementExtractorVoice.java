@@ -44,6 +44,14 @@ public class RequirementExtractorVoice {
         String projectDescription;
         Project project; // Changed from Long projectId to Project project
         String currentToken;
+
+        public void clearConversationHistory() {
+            this.conversationHistory = new ArrayList<>();
+            this.requirementsGathered = false;
+            this.projectName = null;
+            this.projectDescription = null;
+            this.project = null;
+    }
     }
 
 

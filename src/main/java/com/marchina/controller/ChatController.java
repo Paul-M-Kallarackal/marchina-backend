@@ -15,7 +15,6 @@ import java.util.HashMap;
 
 @RestController
 @RequestMapping("/api/chat")
-@CrossOrigin(origins = {"http://localhost:3000", "https://marchina.calmmoss-a81a16c4.eastus.azurecontainerapps.io"})
 public class ChatController {
     private static final Logger logger = LoggerFactory.getLogger(ChatController.class);
     
@@ -58,12 +57,17 @@ public class ChatController {
                     "description", requirementExtractor.getProjectDescription(state)
                 );
                 
-                // Pass both the project request and auth header
-                projectController.createProject(projectRequest, authHeader);
-                agentController.processRequest(projectRequest);
+                // // Pass both the project request and auth header
+                // projectController.createProject(projectRequest, authHeader);
+                // agentController.processRequest(projectRequest);
+                if (state != null) {
+                    state.clearConversationHistory();
+                    logger.info("Cleared conversation history for user: {}", userId);
+                }
             }
 
             return ResponseEntity.ok(response);
+            
         } catch (Exception e) {
             logger.error("Error in chat endpoint: {}", e.getMessage());
             return ResponseEntity.internalServerError().build();

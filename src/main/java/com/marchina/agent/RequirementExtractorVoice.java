@@ -44,6 +44,7 @@ public class RequirementExtractorVoice {
         String projectDescription;
         Project project; // Changed from Long projectId to Project project
         String currentToken;
+        int insufficientCounter = 0;
 
         public void clearConversationHistory() {
             this.conversationHistory = new ArrayList<>();
@@ -51,6 +52,7 @@ public class RequirementExtractorVoice {
             this.projectName = null;
             this.projectDescription = null;
             this.project = null;
+            this.insufficientCounter = 0; 
     }
     }
 
@@ -142,9 +144,11 @@ public class RequirementExtractorVoice {
                     """, state.projectName, fullConversation);
                 
                 String assessmentResult = chatModel.generate(prompt);
+                logger.info("Assessment Result: " + assessmentResult);
                 
                 if (assessmentResult.startsWith("SUFFICIENT")) {
                     // We have enough information, generate the project description
+                    logger.info("Generating project description...");
                     prompt = String.format("""
                         Based on this conversation about project "%s":
                         
@@ -163,12 +167,14 @@ public class RequirementExtractorVoice {
                     
                     state.projectDescription = chatModel.generate(prompt);
                     state.requirementsGathered = true;
+                    logger.info("Project description generated: {}", state.projectDescription);
                     
                     // Create the project, stores Project object in state.project
                     createProject(state);
+                    logger.info("Project created: {}", state.project);
                     
                     // Generate the single optimal diagram
-                    generateOptimalDiagram(state);
+                    // generateOptimalDiagram(state);
                     
                     prompt = String.format("""
                         Based on the gathered information:
@@ -188,23 +194,55 @@ public class RequirementExtractorVoice {
                     aiResponse = chatModel.generate(prompt);
                 } else {
                     // We need more information
-                    prompt = String.format("""
-                        You are an AI assistant helping gather project requirements.
-                        Project Name: %s
-                        Conversation so far: %s
+                    state.insufficientCounter++;
+                    logger.info("Insufficient information, attempt {} of 2", state.insufficientCounter);
+
+                    if (state.insufficientCounter > 2) {
+                        // Force generate project description after 4 attempts
+                        logger.info("Forcing project description generation after {} insufficient attempts", state.insufficientCounter);
                         
-                        Generate a response that:
-                        1. Acknowledges the information provided so far
-                        2. Asks specific questions to gather missing details
-                        3. Guides the user toward providing complete requirements
-                        4. Maintains conversational tone
-                        5. Is short and engaging
-                        6. Doesn't use any markdown formatting.
+                        prompt = String.format("""
+                            Based on this conversation about project "%s":
+                            
+                            %s
+                            
+                            Generate a comprehensive project description that:
+                            1. Summarizes the project purpose
+                            2. Lists all key features and requirements
+                            3. Includes any technical constraints mentioned by the user
+                            4. Is structured and detailed enough for technical diagram generation
+                            5. Doesn't use any markdown formatting
+                            6. Contains three lines maximum
+                            
+                            Provide only the description text.
+                            """, state.projectName, fullConversation);
                         
-                        Provide only the response text.
-                        """, state.projectName, fullConversation);
-                    
-                    aiResponse = chatModel.generate(prompt);
+                        state.projectDescription = chatModel.generate(prompt);
+                        state.requirementsGathered = true;
+                        
+                        // Create the project
+                        createProject(state);
+                        
+                        aiResponse = "I've gathered enough information to proceed. I'll create your project and generate the technical diagrams now.";
+                    } else {
+                        prompt = String.format("""
+                            You are an AI assistant helping gather project requirements.
+                            Project Name: %s
+                            Conversation so far: %s
+                            
+                            Generate a response that:
+                            1. Acknowledges the information provided so far
+                            2. Asks specific questions to gather missing details
+                            3. Guides the user toward providing complete requirements
+                            4. Maintains conversational tone
+                            5. Is short and engaging
+                            6. Doesn't use any markdown formatting.
+                            
+                            Provide only the response text.
+                            """, state.projectName, fullConversation);
+                        
+                        aiResponse = chatModel.generate(prompt);
+                }
                 }
             } else {
                 aiResponse = "Perfect! I've created your project and generated the technical diagrams. You can view them now.";
@@ -241,6 +279,7 @@ public class RequirementExtractorVoice {
             Map<String, String> payload = new HashMap<>();
             payload.put("name", state.projectName);
             payload.put("description", state.projectDescription);
+            logger.info("Creating project with payload: {}", payload);
 
             ResponseEntity<?> response = projectController.createProject(payload, state.currentToken);
             
@@ -252,6 +291,7 @@ public class RequirementExtractorVoice {
                 
                 if (projectData instanceof Project) {
                      state.project = (Project) projectData;
+                     logger.info("Project created successfully: {}", state.project);
                 } else if (projectData instanceof Map) {
                      // Handle if ProjectController returns a Map instead of Project object
                      @SuppressWarnings("unchecked")
@@ -284,49 +324,49 @@ public class RequirementExtractorVoice {
     }
 
     // Accepts ConversationState, uses state.project and state.projectDescription
-    private void generateOptimalDiagram(ConversationState state) {
-        if (state.project == null) {
-            logger.error("Cannot generate diagram because project object is null in state.");
-            return; 
-        }
-        if (state.projectDescription == null || state.projectDescription.trim().isEmpty()) {
-             logger.warn("Project description is empty for project {}, skipping diagram generation.", state.project.getId());
-             return;
-        }
+    // private void generateOptimalDiagram(ConversationState state) {
+    //     if (state.project == null) {
+    //         logger.error("Cannot generate diagram because project object is null in state.");
+    //         return; 
+    //     }
+    //     if (state.projectDescription == null || state.projectDescription.trim().isEmpty()) {
+    //          logger.warn("Project description is empty for project {}, skipping diagram generation.", state.project.getId());
+    //          return;
+    //     }
 
-        try {
-            // Determine the optimal diagram type using LLM based on projectDescription
-             String analysisPrompt = String.format("""
-                Analyze this project description and determine the single most appropriate diagram type to visualize it.
-                Available types: ERD, Flowchart, Sequence Diagram, Class Diagram.
-                Consider the focus of the description (data structure, process flow, interactions, object structure).
+    //     try {
+    //         // Determine the optimal diagram type using LLM based on projectDescription
+    //          String analysisPrompt = String.format("""
+    //             Analyze this project description and determine the single most appropriate diagram type to visualize it.
+    //             Available types: ERD, Flowchart, Sequence Diagram, Class Diagram.
+    //             Consider the focus of the description (data structure, process flow, interactions, object structure).
                 
-                Description:
-                %s
+    //             Description:
+    //             %s
                 
-                Respond ONLY with the name of the single most appropriate diagram type (e.g., Flowchart, ERD, Sequence Diagram, Class Diagram).
-                """, state.projectDescription);
+    //             Respond ONLY with the name of the single most appropriate diagram type (e.g., Flowchart, ERD, Sequence Diagram, Class Diagram).
+    //             """, state.projectDescription);
 
-            String optimalDiagramType = chatModel.generate(analysisPrompt).trim();
-            // Basic validation/fallback
-            List<String> validTypes = List.of("ERD", "Flowchart", "Sequence Diagram", "Class Diagram");
-            if (!validTypes.contains(optimalDiagramType)) {
-                logger.warn("LLM returned invalid diagram type '{}' based on voice description. Defaulting to Flowchart.", optimalDiagramType);
-                optimalDiagramType = "Flowchart"; // Fallback to Flowchart
-            }
+    //         String optimalDiagramType = chatModel.generate(analysisPrompt).trim();
+    //         // Basic validation/fallback
+    //         List<String> validTypes = List.of("ERD", "Flowchart", "Sequence Diagram", "Class Diagram");
+    //         if (!validTypes.contains(optimalDiagramType)) {
+    //             logger.warn("LLM returned invalid diagram type '{}' based on voice description. Defaulting to Flowchart.", optimalDiagramType);
+    //             optimalDiagramType = "Flowchart"; // Fallback to Flowchart
+    //         }
 
-            logger.info("Determined optimal diagram type for project {} from voice context: {}", state.project.getId(), optimalDiagramType);
+    //         logger.info("Determined optimal diagram type for project {} from voice context: {}", state.project.getId(), optimalDiagramType);
             
-            // Call MainAgent to generate the determined optimal diagram type using projectDescription
-            mainAgent.processRequest(state.project, optimalDiagramType, state.projectDescription);
-            logger.info("Finished attempt to generate optimal diagram ({}) for project {}", optimalDiagramType, state.project.getId());
+    //         // Call MainAgent to generate the determined optimal diagram type using projectDescription
+    //         mainAgent.processRequest(state.project, optimalDiagramType, state.projectDescription);
+    //         logger.info("Finished attempt to generate optimal diagram ({}) for project {}", optimalDiagramType, state.project.getId());
 
-        } catch (Exception e) {
-            logger.error("Error determining or generating optimal diagram for project {} from voice context: {}", 
-                         (state.project != null ? state.project.getId() : "null"), e.getMessage(), e);
-            // Logged the error, not throwing
-        }
-    }
+    //     } catch (Exception e) {
+    //         logger.error("Error determining or generating optimal diagram for project {} from voice context: {}", 
+    //                      (state.project != null ? state.project.getId() : "null"), e.getMessage(), e);
+    //         // Logged the error, not throwing
+    //     }
+    // }
 
     // Getters now accept state
     public boolean isRequirementsGathered(ConversationState state) {

@@ -36,3 +36,5 @@ build/
 
 ### .env files
 *.env
+
+src/main/java/com/marchina/config/SecurityConfigCopy.java

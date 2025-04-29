@@ -57,9 +57,7 @@ public class ChatController {
                     "description", requirementExtractor.getProjectDescription(state)
                 );
                 
-                // // Pass both the project request and auth header
-                // projectController.createProject(projectRequest, authHeader);
-                // agentController.processRequest(projectRequest);
+
                 if (state != null) {
                     state.clearConversationHistory();
                     logger.info("Cleared conversation history for user: {}", userId);

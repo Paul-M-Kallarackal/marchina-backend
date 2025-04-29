@@ -53,8 +53,7 @@ public class AgentController {
             // Debugging code
             logger.info("Main agent response: {}", result);
             logger.info("Message to be sent to TTS: {}", result.getMessage());
-            // logger.info("Main agent response - Methods: {}", 
-            // Arrays.toString(result.getClass().getMethods()));
+
 
             
             // Generate speech for the actual response message

@@ -323,51 +323,6 @@ public class RequirementExtractorVoice {
         }
     }
 
-    // Accepts ConversationState, uses state.project and state.projectDescription
-    // private void generateOptimalDiagram(ConversationState state) {
-    //     if (state.project == null) {
-    //         logger.error("Cannot generate diagram because project object is null in state.");
-    //         return; 
-    //     }
-    //     if (state.projectDescription == null || state.projectDescription.trim().isEmpty()) {
-    //          logger.warn("Project description is empty for project {}, skipping diagram generation.", state.project.getId());
-    //          return;
-    //     }
-
-    //     try {
-    //         // Determine the optimal diagram type using LLM based on projectDescription
-    //          String analysisPrompt = String.format("""
-    //             Analyze this project description and determine the single most appropriate diagram type to visualize it.
-    //             Available types: ERD, Flowchart, Sequence Diagram, Class Diagram.
-    //             Consider the focus of the description (data structure, process flow, interactions, object structure).
-                
-    //             Description:
-    //             %s
-                
-    //             Respond ONLY with the name of the single most appropriate diagram type (e.g., Flowchart, ERD, Sequence Diagram, Class Diagram).
-    //             """, state.projectDescription);
-
-    //         String optimalDiagramType = chatModel.generate(analysisPrompt).trim();
-    //         // Basic validation/fallback
-    //         List<String> validTypes = List.of("ERD", "Flowchart", "Sequence Diagram", "Class Diagram");
-    //         if (!validTypes.contains(optimalDiagramType)) {
-    //             logger.warn("LLM returned invalid diagram type '{}' based on voice description. Defaulting to Flowchart.", optimalDiagramType);
-    //             optimalDiagramType = "Flowchart"; // Fallback to Flowchart
-    //         }
-
-    //         logger.info("Determined optimal diagram type for project {} from voice context: {}", state.project.getId(), optimalDiagramType);
-            
-    //         // Call MainAgent to generate the determined optimal diagram type using projectDescription
-    //         mainAgent.processRequest(state.project, optimalDiagramType, state.projectDescription);
-    //         logger.info("Finished attempt to generate optimal diagram ({}) for project {}", optimalDiagramType, state.project.getId());
-
-    //     } catch (Exception e) {
-    //         logger.error("Error determining or generating optimal diagram for project {} from voice context: {}", 
-    //                      (state.project != null ? state.project.getId() : "null"), e.getMessage(), e);
-    //         // Logged the error, not throwing
-    //     }
-    // }
-
     // Getters now accept state
     public boolean isRequirementsGathered(ConversationState state) {
         return state.requirementsGathered;

@@ -15,39 +15,23 @@ public class AppConfig {
 
     @Bean
     public Dotenv dotenv() {
-        try {
-            return Dotenv.configure().ignoreIfMissing().load();
-        } catch (Exception e) {
-            logger.warn("No .env file found, will use system environment variables");
-            return null;
-        }
-    }
-
-    private String getEnvVariable(Dotenv dotenv, String key) {
-        if (dotenv != null) {
-            String value = dotenv.get(key);
-            if (value != null) {
-                return value;
-            }
-        }
-        return System.getenv(key);
+        return Dotenv.configure()
+                .directory(".")
+                .ignoreIfMissing()
+                .load();
     }
 
     @Bean
     @Primary
     public ChatLanguageModel chatLanguageModel(Dotenv dotenv) {
         logger.info("Initializing Azure OpenAI Chat Model");
-        
-        String apiKey = getEnvVariable(dotenv, "AZURE_OPENAI_API_KEY");
-        String endpoint = getEnvVariable(dotenv, "AZURE_OPENAI_ENDPOINT");
-        String deploymentId = getEnvVariable(dotenv, "AZURE_OPENAI_DEPLOYMENT_ID");
-        String apiVersion = getEnvVariable(dotenv, "AZURE_OPENAI_API_VERSION");
 
-        // Don't log the API key in production
-        logger.info("Azure OpenAI Endpoint: {}", endpoint);
-        logger.info("Azure OpenAI DeploymentId: {}", deploymentId);
-        logger.info("Azure OpenAI API Version: {}", apiVersion);
-        
+
+        String apiKey = dotenv.get("AZURE_OPENAI_API_KEY");
+        String endpoint = dotenv.get("AZURE_OPENAI_ENDPOINT");
+        String deploymentId = dotenv.get("AZURE_OPENAI_DEPLOYMENT_ID");
+        String apiVersion = dotenv.get("AZURE_OPENAI_API_VERSION");
+
         if (apiKey == null || endpoint == null || deploymentId == null || apiVersion == null) {
             String message = "Missing required Azure OpenAI configuration. Please check environment variables or .env file.";
             logger.error(message);

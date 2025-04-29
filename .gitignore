@@ -10,6 +10,8 @@ target/
 .factorypath
 .project
 .settings
+docker-compose.yml
+docker-compose.*.yml
 .springBeans
 .sts4-cache
 
@@ -34,3 +36,5 @@ build/
 
 ### .env files
 *.env
+
+src/main/java/com/marchina/config/SecurityConfigCopy.java

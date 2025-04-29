@@ -1,6 +1,6 @@
 package com.marchina.agent;
 
-// import com.marchina.model.AgentResponse;
+// import com.marchina.model.AgentResponse; // Remove if unused
 import com.marchina.model.Diagram;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import org.slf4j.Logger;
@@ -23,12 +23,9 @@ import java.util.Optional; // Import Optional
 import com.marchina.model.Project;
 import com.marchina.model.DiagramGenerationResult;
 
-/**
- * Agent responsible for generating Entity Relationship Diagrams (ERDs).
- */
 @Component
-public class ERDAgent {
-    private static final Logger logger = LoggerFactory.getLogger(ERDAgent.class);
+public class SequenceDiagramAgent {
+    private static final Logger logger = LoggerFactory.getLogger(SequenceDiagramAgent.class);
     private static final int MAX_RETRIES = 3;
 
     private final ChatLanguageModel chatModel;
@@ -47,7 +44,7 @@ public class ERDAgent {
     };
 
     // Added objectMapper
-    public ERDAgent(ChatLanguageModel chatModel, DiagramValidator diagramValidator, JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) { 
+    public SequenceDiagramAgent(ChatLanguageModel chatModel, DiagramValidator diagramValidator, JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
         this.chatModel = chatModel;
         this.diagramValidator = diagramValidator;
         this.jdbcTemplate = jdbcTemplate;
@@ -55,24 +52,24 @@ public class ERDAgent {
     }
 
     /**
-     * Generates and saves an ERD for a project.
+     * Generates and saves a sequence diagram for a project.
      * @return The created Diagram object, or empty Optional if failed.
      */
     // Changed signature to return Optional<Diagram>
-    public Optional<Diagram> generateAndSaveERD(Project project, String requirements) { 
+    public Optional<Diagram> generateAndSaveSequenceDiagram(Project project, String requirements) {
         try {
             Long projectId = project.getId();
-            logger.info("Attempting to generate ERD for project {} ('{}')", projectId, project.getName());
+            logger.info("Attempting to generate sequence diagram for project {} ('{}')", projectId, project.getName());
 
-            DiagramGenerationResult result = generateERD(project, requirements);
+            DiagramGenerationResult result = generateSequenceDiagram(project, requirements);
             if (!result.success()) {
-                logger.error("Failed to generate ERD content: {}", result.errorMessage());
-                throw new RuntimeException("Failed to generate ERD content: " + result.errorMessage());
+                logger.error("Failed to generate sequence diagram content: {}", result.errorMessage());
+                throw new RuntimeException("Failed to generate sequence diagram content: " + result.errorMessage());
             }
 
-            String diagramName = result.name();
+            String diagramName = result.name(); 
             String mermaidCode = result.diagramCode();
-            logger.info("Generated ERD content with name: '{}'", diagramName);
+            logger.info("Generated sequence diagram content with name: '{}'", diagramName);
 
             String sql = """
                 WITH inserted AS (
@@ -89,35 +86,28 @@ public class ERDAgent {
                 diagramRowMapper,
                 projectId,
                 diagramName, 
-                "ERD", 
+                "Sequence Diagram", 
                 mermaidCode
             );
 
             if (createdDiagram == null) {
-                logger.error("Failed to save or retrieve ERD for project {}", projectId);
-                throw new RuntimeException("Failed to save ERD");
+                logger.error("Failed to save or retrieve sequence diagram for project {}", projectId);
+                throw new RuntimeException("Failed to save sequence diagram");
             }
 
-            logger.info("Saved ERD '{}' (ID: {}) for project {}", diagramName, createdDiagram.getId(), projectId);
+            logger.info("Saved sequence diagram '{}' (ID: {}) for project {}", diagramName, createdDiagram.getId(), projectId);
             return Optional.of(createdDiagram); // Return the created diagram
 
         } catch (Exception e) {
-            logger.error("Error processing ERD for project {}: {}", project.getId(), e.getMessage(), e);
-            throw new RuntimeException("Failed to process ERD request", e);
+            logger.error("Error processing sequence diagram for project {}: {}", project.getId(), e.getMessage(), e);
+            throw new RuntimeException("Failed to process sequence diagram request", e);
         }
     }
 
-    /**
-     * Generates an ERD based on the given description.
-     *
-     * @param project The project context
-     * @param requirements The description of the ERD to generate
-     * @return DiagramGenerationResult containing the generated ERD or error
-     */
     // Updated to accept Project and return DiagramGenerationResult
-    public DiagramGenerationResult generateERD(Project project, String requirements) {
+    public DiagramGenerationResult generateSequenceDiagram(Project project, String requirements) {
         try {
-            logger.info("Generating ERD for project: {}, requirements: {}", project.getId(), requirements);
+            logger.info("Generating sequence diagram for project: {}, requirements: {}", project.getId(), requirements);
 
             int retryCount = 0;
             String currentRequirements = requirements;
@@ -125,39 +115,38 @@ public class ERDAgent {
             String projectDescription = project.getDescription(); // Assuming Project has description
 
             while (retryCount < MAX_RETRIES) {
-                logger.info("Attempt {} of {} to generate ERD", retryCount + 1, MAX_RETRIES);
+                logger.info("Attempt {} of {} to generate sequence diagram", retryCount + 1, MAX_RETRIES);
 
                 // Update prompt to include project context and ask for JSON
-                String erdPrompt = String.format("""
+                String sequenceDiagramPrompt = String.format("""
                     Project Context:
                     Name: %s
                     Description: %s
 
-                    Requirements for ERD:
+                    Requirements for Sequence Diagram:
                     %s
 
-                    Generate a Mermaid ERD (Entity Relationship Diagram) based on the project context and requirements.
+                    Generate a Mermaid sequence diagram based on the project context and requirements.
 
-                    Follow these rules for the ERD:
-                    1. Use proper Mermaid ERD syntax.
-                    2. Include all relevant entities with their attributes based on requirements.
-                    3. Show relationships between entities clearly.
-                    4. Use appropriate cardinality notation (e.g., ||, |o, }|, }o).
-                    5. Include primary and foreign keys where applicable.
-                    6. Add meaningful relationship descriptions.
+                    Follow these rules for the sequence diagram:
+                    1. Use proper Mermaid sequence diagram syntax.
+                    2. Show all relevant participants and their interactions based on requirements.
+                    3. Include message types (sync/async) where appropriate.
+                    4. Show activation/deactivation if needed for clarity.
+                    5. Use proper time ordering.
 
-                    Also, generate a concise and relevant name for this specific ERD based on the project and requirements.
+                    Also, generate a concise and relevant name for this specific sequence diagram based on the project and requirements.
 
                     Respond ONLY with a valid JSON object containing two keys: "name" (string) and "diagram" (string, the Mermaid code).
                     Example JSON response format:
                     {
-                      "name": "E-commerce Database Schema ERD",
-                      "diagram": "erDiagram\\nCUSTOMER ||--o{ ORDER : places\\n..."
+                      "name": "User Authentication Sequence",
+                      "diagram": "sequenceDiagram\\nparticipant U as User\\nparticipant S as Server\\n..."
                     }
                     Do not include any other text or markdown formatting outside the JSON object.
                     """, projectName, projectDescription, currentRequirements);
 
-                String llmResponse = chatModel.generate(erdPrompt);
+                String llmResponse = chatModel.generate(sequenceDiagramPrompt);
 
                 try {
                     // Parse the JSON response
@@ -169,13 +158,13 @@ public class ERDAgent {
                          throw new JsonProcessingException("Missing 'name' or 'diagram' in LLM JSON response") {};
                     }
 
-                    // Validate the generated ERD code (using specific ERD validator)
-                    String validationResult = diagramValidator.validateERD(mermaidCode);
+                    // Validate the generated sequence diagram code (using generic syntax validator)
+                    String validationResult = diagramValidator.validateMermaidSyntax(mermaidCode);
                     if (validationResult.contains("valid")) {
-                        logger.info("Successfully generated and validated ERD. Name: '{}'", diagramName);
+                        logger.info("Successfully generated and validated sequence diagram. Name: '{}'", diagramName);
                         return DiagramGenerationResult.success(diagramName, mermaidCode);
                     } else {
-                         logger.warn("Generated ERD failed validation (Attempt {}). Feedback: {}", retryCount + 1, validationResult);
+                         logger.warn("Generated sequence diagram failed validation (Attempt {}). Feedback: {}", retryCount + 1, validationResult);
                          currentRequirements = requirements; // Reset/refine requirements for retry
                          retryCount++;
                     }
@@ -186,41 +175,29 @@ public class ERDAgent {
                 }
             }
 
-            logger.error("Failed to generate valid ERD after {} attempts for project {}", MAX_RETRIES, project.getId());
-            return DiagramGenerationResult.failure("Failed to generate valid ERD after " + MAX_RETRIES + " attempts");
+            logger.error("Failed to generate valid sequence diagram after {} attempts for project {}", MAX_RETRIES, project.getId());
+            return DiagramGenerationResult.failure("Failed to generate valid sequence diagram after " + MAX_RETRIES + " attempts");
 
         } catch (Exception e) {
-            logger.error("Error generating ERD for project {}: {}", project.getId(), e.getMessage(), e);
-            return DiagramGenerationResult.failure("Error generating ERD: " + e.getMessage());
+            logger.error("Error generating sequence diagram for project {}: {}", project.getId(), e.getMessage(), e);
+            return DiagramGenerationResult.failure("Error generating sequence diagram: " + e.getMessage());
         }
     }
 
-    // explainERD and generateSQL methods remain the same
-    public String explainERD(String mermaidCode) {
+    // explainSequenceDiagram method remains the same
+    public String explainSequenceDiagram(String mermaidCode) {
         String prompt = String.format("""
-            Explain the following Mermaid ERD code in simple terms:
+            Explain the following Mermaid sequence diagram code in simple terms:
             %s
 
             Requirements:
-            1. Explain the overall data structure
-            2. Describe each entity and its attributes
-            3. Explain relationships between entities
-            4. Highlight key constraints and cardinalities
-            5. Note any important design decisions
+            1. Explain the overall interaction flow
+            2. Describe each participant's role
+            3. Explain the sequence of messages
+            4. Highlight important interactions
+            5. Note any parallel or conditional flows
 
             Provide a clear and comprehensive explanation.
-            """, mermaidCode);
-
-        return chatModel.generate(prompt);
-    }
-
-    public String generateSQL(String mermaidCode) {
-        String prompt = String.format("""
-            Generate SQL CREATE TABLE statements for the following Mermaid ERD:
-            %s
-
-            Please provide only the SQL statements without any additional text or explanation.
-            Include primary keys, foreign keys, and appropriate data types.
             """, mermaidCode);
 
         return chatModel.generate(prompt);

@@ -12,5 +12,8 @@ RUN mvn clean package -DskipTests
 FROM mcr.microsoft.com/openjdk/jdk:${JAVA_VERSION}-mariner
 WORKDIR /app
 COPY --from=builder /app/target/*.jar app.jar
+COPY .env .env
+
+# Expose port 8080
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]

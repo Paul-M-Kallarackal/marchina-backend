@@ -16,8 +16,4 @@ COPY .env .env
 
 # Expose port 8080
 EXPOSE 8080
-
-# Set server port explicitly
-ENV SERVER_PORT=8080
-
-ENTRYPOINT ["java", "-jar", "-Dserver.port=8080", "app.jar"]
+ENTRYPOINT ["java", "-jar", "app.jar"]

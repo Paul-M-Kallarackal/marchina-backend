@@ -4,7 +4,7 @@
 ![Maven](https://img.shields.io/badge/build-Maven-green)
 ![Azure Container Apps](https://img.shields.io/badge/deployed-Azure%20Container%20Apps-blue)
 
-Marchina Backend is a Spring Boot application that powers the Marchina Tech Diagram AI Agent. It provides RESTful APIs for project and diagram management, and coordinates multiple AI agents (STT, Requirement Extraction, Diagram Generators, TTS) to build and validate technical diagrams. The service uses Microsoft Azure Container Apps for hosting, Azure Flexible PostgreSQL for the database, and Azure OpenAI & Cognitive Services for AI capabilities.
+Marchina Backend is a Spring Boot application that powers the Marchina AI Agents and Marchina Voice. It provides RESTful APIs for project and diagram management, and coordinates multiple AI agents (STT, Requirement Extraction, Diagram Generators, TTS) to build and validate technical diagrams. The service uses Microsoft Azure Container Apps for hosting, Azure Flexible PostgreSQL for the database, and Azure OpenAI & Cognitive Services for AI capabilities.
 
 
 Quick Links to Marchina Repositories
